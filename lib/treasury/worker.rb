@@ -12,9 +12,7 @@ module Treasury
 
     LOGGER_FILE_NAME = "#{ROOT_LOGGER_DIR}/workers/%{name}_worker"
 
-    COMMON_NAME = 'common'
-    ORDERS_NAME = 'orders'
-    DEV_MODE_WORKERS = [COMMON_NAME, ORDERS_NAME].freeze
+    DEV_MODE_WORKERS = [::Treasury::Models::Worker::COMMON_NAME, ::Treasury::Models::Worker::ORDERS_NAME].freeze
 
     module Errors
       class WorkerError < StandardError; end
@@ -160,15 +158,15 @@ module Treasury
     # Returns Array of Treasury::Models::Field.
     #
     def processing_fields
-      processing_fields =
-        Treasury::Models::Field
-        .for_processing
-        .joins(processors: :queue)
-        .eager_load(processors: :queue)
+      processing_fields = ::Treasury::Models::Field.for_processing.joins(processors: :queue).
+        includes(processors: :queue)
 
-      if Rails.env.production? && !Rails.env.staging?
-        processing_fields = processing_fields.where(worker_id: current_worker.id)
-      end
+      processing_fields =
+        if (Rails.env.production? && !Rails.env.staging?) || current_worker.orders_worder?
+          processing_fields.where(worker_id: current_worker.id)
+        elsif current_worker.common_worker?
+          processing_fields.where('worker_id != ?', ::Treasury::Models::Worker.orders_worder.id)
+        end
 
       processing_fields.to_a
     end
@@ -192,6 +190,7 @@ module Treasury
 
     def check_active
       return true if @process_object.active?
+
       logger.warn "Worker не активен"
       false
     end
